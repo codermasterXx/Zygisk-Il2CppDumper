@@ -24,6 +24,8 @@
 
 #undef DO_API
 
+// Unity 6 compatibility: declare removed APIs as nullable pointers
+static const Il2CppAssembly** (*il2cpp_domain_get_assemblies)(const void* domain, size_t* size) = nullptr;
 static uint64_t il2cpp_base = 0;
 
 void init_il2cpp_api(void *handle) {
