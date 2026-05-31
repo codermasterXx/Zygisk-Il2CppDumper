@@ -81,10 +81,6 @@ DO_API(int, il2cpp_class_get_rank, (const Il2CppClass * klass));
 DO_API(uint32_t, il2cpp_class_get_data_size, (const Il2CppClass * klass));
 DO_API(void*, il2cpp_class_get_static_field_data, (const Il2CppClass * klass));
 
-// testing only
-DO_API(size_t, il2cpp_class_get_bitmap_size, (const Il2CppClass * klass));
-DO_API(void, il2cpp_class_get_bitmap, (Il2CppClass * klass, size_t * bitmap));
-
 // stats
 DO_API(bool, il2cpp_stats_dump_to_file, (const char *path));
 DO_API(uint64_t, il2cpp_stats_get_value, (Il2CppStat stat));
@@ -92,7 +88,6 @@ DO_API(uint64_t, il2cpp_stats_get_value, (Il2CppStat stat));
 // domain
 DO_API(Il2CppDomain*, il2cpp_domain_get, ());
 DO_API(const Il2CppAssembly*, il2cpp_domain_assembly_open, (Il2CppDomain * domain, const char* name));
-DO_API(const Il2CppAssembly**, il2cpp_domain_get_assemblies, (const Il2CppDomain * domain, size_t * size));
 
 // exception
 DO_API_NO_RETURN(void, il2cpp_raise_exception, (Il2CppException*));
@@ -239,8 +234,6 @@ DO_API(Il2CppString*, il2cpp_string_is_interned, (Il2CppString * str));
 DO_API(Il2CppThread*, il2cpp_thread_current, ());
 DO_API(Il2CppThread*, il2cpp_thread_attach, (Il2CppDomain * domain));
 DO_API(void, il2cpp_thread_detach, (Il2CppThread * thread));
-
-DO_API(Il2CppThread**, il2cpp_thread_get_all_attached_threads, (size_t * size));
 DO_API(bool, il2cpp_is_vm_thread, (Il2CppThread * thread));
 
 // stacktrace
