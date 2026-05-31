@@ -1,5 +1,6 @@
 //
 // Created by Perfare on 2020/7/4.
+// Modified for Unity 6 compatibility
 //
 
 #include "il2cpp_dump.h"
@@ -97,7 +98,6 @@ std::string dump_method(Il2CppClass *klass) {
     outPut << "\n\t// Methods\n";
     void *iter = nullptr;
     while (auto method = il2cpp_class_get_methods(klass, &iter)) {
-        //TODO attribute
         if (method->methodPointer) {
             outPut << "\t// RVA: 0x";
             outPut << std::hex << (uint64_t) method->methodPointer - il2cpp_base;
@@ -106,14 +106,10 @@ std::string dump_method(Il2CppClass *klass) {
         } else {
             outPut << "\t// RVA: 0x VA: 0x0";
         }
-        /*if (method->slot != 65535) {
-            outPut << " Slot: " << std::dec << method->slot;
-        }*/
         outPut << "\n\t";
         uint32_t iflags = 0;
         auto flags = il2cpp_method_get_flags(method, &iflags);
         outPut << get_method_modifier(flags);
-        //TODO genericContainerIndex
         auto return_type = il2cpp_method_get_return_type(method);
         if (_il2cpp_type_is_byref(return_type)) {
             outPut << "ref ";
@@ -150,7 +146,6 @@ std::string dump_method(Il2CppClass *klass) {
             outPut.seekp(-2, outPut.cur);
         }
         outPut << ") { }\n";
-        //TODO GenericInstMethod
     }
     return outPut.str();
 }
@@ -160,7 +155,6 @@ std::string dump_property(Il2CppClass *klass) {
     outPut << "\n\t// Properties\n";
     void *iter = nullptr;
     while (auto prop_const = il2cpp_class_get_properties(klass, &iter)) {
-        //TODO attribute
         auto prop = const_cast<PropertyInfo *>(prop_const);
         auto get = il2cpp_property_get_get_method(prop);
         auto set = il2cpp_property_get_set_method(prop);
@@ -200,7 +194,6 @@ std::string dump_field(Il2CppClass *klass) {
     auto is_enum = il2cpp_class_is_enum(klass);
     void *iter = nullptr;
     while (auto field = il2cpp_class_get_fields(klass, &iter)) {
-        //TODO attribute
         outPut << "\t";
         auto attrs = il2cpp_field_get_flags(field);
         auto access = attrs & FIELD_ATTRIBUTE_FIELD_ACCESS_MASK;
@@ -235,7 +228,6 @@ std::string dump_field(Il2CppClass *klass) {
         auto field_type = il2cpp_field_get_type(field);
         auto field_class = il2cpp_class_from_type(field_type);
         outPut << il2cpp_class_get_name(field_class) << " " << il2cpp_field_get_name(field);
-        //TODO 获取构造函数初始化后的字段值
         if (attrs & FIELD_ATTRIBUTE_LITERAL && is_enum) {
             uint64_t val = 0;
             il2cpp_field_static_get_value(field, &val);
@@ -254,7 +246,6 @@ std::string dump_type(const Il2CppType *type) {
     if (flags & TYPE_ATTRIBUTE_SERIALIZABLE) {
         outPut << "[Serializable]\n";
     }
-    //TODO attribute
     auto is_valuetype = il2cpp_class_is_valuetype(klass);
     auto is_enum = il2cpp_class_is_enum(klass);
     auto visibility = flags & TYPE_ATTRIBUTE_VISIBILITY_MASK;
@@ -294,7 +285,7 @@ std::string dump_type(const Il2CppType *type) {
     } else {
         outPut << "class ";
     }
-    outPut << il2cpp_class_get_name(klass); //TODO genericContainerIndex
+    outPut << il2cpp_class_get_name(klass);
     std::vector<std::string> extends;
     auto parent = il2cpp_class_get_parent(klass);
     if (!is_valuetype && !is_enum && parent) {
@@ -317,7 +308,6 @@ std::string dump_type(const Il2CppType *type) {
     outPut << dump_field(klass);
     outPut << dump_property(klass);
     outPut << dump_method(klass);
-    //TODO EventInfo
     outPut << "}\n";
     return outPut.str();
 }
@@ -325,16 +315,21 @@ std::string dump_type(const Il2CppType *type) {
 void il2cpp_api_init(void *handle) {
     LOGI("il2cpp_handle: %p", handle);
     init_il2cpp_api(handle);
+    Dl_info dlInfo;
     if (il2cpp_domain_get_assemblies) {
-        Dl_info dlInfo;
         if (dladdr((void *) il2cpp_domain_get_assemblies, &dlInfo)) {
             il2cpp_base = reinterpret_cast<uint64_t>(dlInfo.dli_fbase);
         }
-        LOGI("il2cpp_base: %" PRIx64"", il2cpp_base);
+    } else if (il2cpp_domain_get) {
+        // Unity 6: il2cpp_domain_get_assemblies removed, use il2cpp_domain_get instead
+        if (dladdr((void *) il2cpp_domain_get, &dlInfo)) {
+            il2cpp_base = reinterpret_cast<uint64_t>(dlInfo.dli_fbase);
+        }
     } else {
         LOGE("Failed to initialize il2cpp api.");
         return;
     }
+    LOGI("il2cpp_base: %" PRIx64"", il2cpp_base);
     while (!il2cpp_is_vm_thread(nullptr)) {
         LOGI("Waiting for il2cpp_init...");
         sleep(1);
@@ -345,34 +340,78 @@ void il2cpp_api_init(void *handle) {
 
 void il2cpp_dump(const char *outDir) {
     LOGI("dumping...");
-    size_t size;
     auto domain = il2cpp_domain_get();
-    auto assemblies = il2cpp_domain_get_assemblies(domain, &size);
+    std::vector<const Il2CppAssembly*> assemblyList;
     std::stringstream imageOutput;
-    for (int i = 0; i < size; ++i) {
-        auto image = il2cpp_assembly_get_image(assemblies[i]);
+
+    if (il2cpp_domain_get_assemblies) {
+        // Legacy Unity (pre-6000)
+        LOGI("Using legacy il2cpp_domain_get_assemblies");
+        size_t size = 0;
+        auto assemblies = il2cpp_domain_get_assemblies(domain, &size);
+        for (size_t i = 0; i < size; ++i) {
+            assemblyList.push_back(assemblies[i]);
+        }
+    } else if (il2cpp_class_for_each) {
+        // Unity 6 primary method: enumerate all classes and collect unique images
+        LOGI("Using Unity 6 il2cpp_class_for_each method");
+        std::vector<const Il2CppImage*> images;
+        il2cpp_class_for_each([](Il2CppClass* klass, void* userData) {
+            auto imgs = reinterpret_cast<std::vector<const Il2CppImage*>*>(userData);
+            auto image = il2cpp_class_get_image(klass);
+            if (image) {
+                for (auto& img : *imgs) {
+                    if (img == image) return;
+                }
+                imgs->push_back(image);
+            }
+        }, &images);
+        LOGI("Found %zu images via class_for_each", images.size());
+        for (auto image : images) {
+            auto assembly = il2cpp_image_get_assembly(image);
+            if (assembly) assemblyList.push_back(assembly);
+        }
+    } else {
+        // Last resort fallback
+        LOGI("Using named assembly fallback");
+        const char* knownAssemblies[] = {
+            "Assembly-CSharp", "mscorlib", "UnityEngine.CoreModule",
+            "UnityEngine", "UnityEngine.UI", nullptr
+        };
+        for (int i = 0; knownAssemblies[i] != nullptr; i++) {
+            auto asm_ = il2cpp_domain_assembly_open(domain, knownAssemblies[i]);
+            if (asm_) {
+                assemblyList.push_back(asm_);
+                LOGI("Opened: %s", knownAssemblies[i]);
+            }
+        }
+    }
+
+    auto size = assemblyList.size();
+    LOGI("Total assemblies: %zu", size);
+
+    for (size_t i = 0; i < size; ++i) {
+        auto image = il2cpp_assembly_get_image(assemblyList[i]);
         imageOutput << "// Image " << i << ": " << il2cpp_image_get_name(image) << "\n";
     }
+
     std::vector<std::string> outPuts;
     if (il2cpp_image_get_class) {
         LOGI("Version greater than 2018.3");
-        //使用il2cpp_image_get_class
-        for (int i = 0; i < size; ++i) {
-            auto image = il2cpp_assembly_get_image(assemblies[i]);
+        for (size_t i = 0; i < size; ++i) {
+            auto image = il2cpp_assembly_get_image(assemblyList[i]);
             std::stringstream imageStr;
             imageStr << "\n// Dll : " << il2cpp_image_get_name(image);
             auto classCount = il2cpp_image_get_class_count(image);
-            for (int j = 0; j < classCount; ++j) {
+            for (size_t j = 0; j < classCount; ++j) {
                 auto klass = il2cpp_image_get_class(image, j);
                 auto type = il2cpp_class_get_type(const_cast<Il2CppClass *>(klass));
-                //LOGD("type name : %s", il2cpp_type_get_name(type));
                 auto outPut = imageStr.str() + dump_type(type);
                 outPuts.push_back(outPut);
             }
         }
     } else {
         LOGI("Version less than 2018.3");
-        //使用反射
         auto corlib = il2cpp_get_corlib();
         auto assemblyClass = il2cpp_class_from_name(corlib, "System.Reflection", "Assembly");
         auto assemblyLoad = il2cpp_class_get_method_from_name(assemblyClass, "Load", 1);
@@ -391,12 +430,11 @@ void il2cpp_dump(const char *outDir) {
         }
         typedef void *(*Assembly_Load_ftn)(void *, Il2CppString *, void *);
         typedef Il2CppArray *(*Assembly_GetTypes_ftn)(void *, void *);
-        for (int i = 0; i < size; ++i) {
-            auto image = il2cpp_assembly_get_image(assemblies[i]);
+        for (size_t i = 0; i < size; ++i) {
+            auto image = il2cpp_assembly_get_image(assemblyList[i]);
             std::stringstream imageStr;
             auto image_name = il2cpp_image_get_name(image);
             imageStr << "\n// Dll : " << image_name;
-            //LOGD("image name : %s", image->name);
             auto imageName = std::string(image_name);
             auto pos = imageName.rfind('.');
             auto imageNameNoExt = imageName.substr(0, pos);
@@ -410,18 +448,18 @@ void il2cpp_dump(const char *outDir) {
             for (int j = 0; j < reflectionTypes->max_length; ++j) {
                 auto klass = il2cpp_class_from_system_type((Il2CppReflectionType *) items[j]);
                 auto type = il2cpp_class_get_type(klass);
-                //LOGD("type name : %s", il2cpp_type_get_name(type));
                 auto outPut = imageStr.str() + dump_type(type);
                 outPuts.push_back(outPut);
             }
         }
     }
+
     LOGI("write dump file");
     auto outPath = std::string(outDir).append("/files/dump.cs");
     std::ofstream outStream(outPath);
     outStream << imageOutput.str();
     auto count = outPuts.size();
-    for (int i = 0; i < count; ++i) {
+    for (size_t i = 0; i < count; ++i) {
         outStream << outPuts[i];
     }
     outStream.close();
